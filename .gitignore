@@ -1,0 +1,34 @@
+# --- Build output: both Maven projects ---
+target/
+
+# --- API keys: the viva rubric marks "no API keys leaked" ---
+key.txt
+*.key
+.env
+
+# --- IDEs ---
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+nbactions.xml
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Local test media: don't accidentally commit a 200MB film ---
+# Uncomment the line below if you ever want to commit a test clip:
+# !fixtures/*.mp4
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.wav
