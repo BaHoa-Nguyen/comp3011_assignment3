@@ -22,6 +22,7 @@ import comp3011.effects.FrameJitterer;
 import comp3011.effects.FrameMottler;
 import comp3011.effects.FrameBleeder;
 import comp3011.effects.FramePepperer;
+import comp3011.effects.FrameSubtitler;
 
 import comp3011.dto.CommandOption;
 import comp3011.dto.FrameEffectOption;
@@ -145,7 +146,15 @@ public class CommandLineController {
           "-p",
           "--pepper-frames",
           FramePepperer::new,
-          "Pepper frames with dark spots/blotches"));
+          "Pepper frames with dark spots/blotches"),
+
+      new FrameEffectOption(
+          "-S",
+          "--subtitle-frames",
+          FrameSubtitler::new,
+          "Add speech-to-text subtitles to frames")
+
+  );
 
   public CommandLineController(String[] args) {
     this.args = args.clone();
