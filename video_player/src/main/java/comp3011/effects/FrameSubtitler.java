@@ -19,6 +19,9 @@ import org.bytedeco.javacv.Frame;
 
 public class FrameSubtitler extends FrameProcessor {
 
+  // toggle subtitle
+  private volatile boolean isSubtitleEnabled = true;
+
   // placeholder only to test if the subtitle does appear on the screen before
   // using OpenAI for the transcription
   private static final String PLACEHOLDER_SUBTITLE_TEXT = "Test subtitle feature";
@@ -26,8 +29,21 @@ public class FrameSubtitler extends FrameProcessor {
   // this is the gap between the subtitle and the bottom edge of the frame;
   private static final int BOTTOM_MARGIN = 12;
 
+  public void setEnableSubtitle(boolean enabled) {
+    this.isSubtitleEnabled = enabled;
+  }
+
+  public boolean isSubtitleEnabled() {
+    return isSubtitleEnabled;
+  }
+
   @Override
   public void process(Frame frame, InfoFrame info) throws Exception {
+
+    if (!isSubtitleEnabled) {
+      return;
+    }
+
     if (frame.image == null || frame.image.length == 0 || frame.image[0] == null) {
       return;
     }

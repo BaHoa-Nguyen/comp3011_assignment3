@@ -13,10 +13,13 @@ package comp3011.controller;
 import comp3011.model.VideoPlayerModel;
 import comp3011.view.VideoPlayerView;
 import comp3011.effects.FrameProcessor;
+import comp3011.effects.FrameSubtitler;
 
 import java.io.File;
 import java.util.List;
 import java.util.function.BiConsumer;
+
+import org.bytedeco.librealsense.frame;
 
 import javafx.scene.Scene;
 import javafx.scene.image.Image;
@@ -37,6 +40,8 @@ public class VideoPlayerController {
   private final VideoPlayerView view;
   private final BiConsumer<Integer, Integer> videoSizeChangedHandler;
 
+  private final FrameSubtitler frameSubtitler;
+
   public VideoPlayerController(
       boolean audioEnabled,
       List<FrameProcessor> frameProcessors,
@@ -52,6 +57,13 @@ public class VideoPlayerController {
         this::onPlaybackStateChanged,
         this::onAudioOutputStateChanged);
 
+    // since subtitle is the only frame that can be toggled, finding it in the list
+    // of frame is necessary
+    frameSubtitler = frameProcessors.stream().filter(FrameSubtitler.class::isInstance).map(FrameSubtitler.class::cast)
+        .findFirst().orElse(null);
+
+    view.getSubtitleButton().setOnAction(_ -> toggleSubtitle());
+    view.showSubtitleEnabled(frameSubtitler != null);
     view.getStartOverButton().setOnAction(_ -> startOver());
     view.getBackFiveButton().setOnAction(_ -> backFiveSeconds());
     view.getPausePlayButton().setOnAction(_ -> togglePause());
@@ -59,6 +71,7 @@ public class VideoPlayerController {
     view.getStopButton().setOnAction(_ -> stopAndExit());
     view.getAudioButton().setOnAction(_ -> toggleAudioOutput());
     view.showAudioEnabled(model.isAudioOutputEnabled());
+
   }
 
   public void installKeyboardShortcuts(Scene scene) {
@@ -81,6 +94,9 @@ public class VideoPlayerController {
       } else if (event.getCode() == KeyCode.A) {
         toggleAudioOutput();
         event.consume();
+      } else if (event.getCode() == KeyCode.S) {
+        toggleSubtitle();
+        event.consume();
       }
     });
   }
@@ -91,6 +107,7 @@ public class VideoPlayerController {
 
   public void play(File file) {
     view.setPlaybackControlsDisabled(false);
+    view.getSubtitleButton().setDisable(frameSubtitler == null);
     model.play(file);
   }
 
@@ -116,6 +133,18 @@ public class VideoPlayerController {
 
   private void toggleAudioOutput() {
     model.toggleAudioOutput();
+  }
+
+  private void toggleSubtitle() {
+
+    // -S is not given, so the button is disabled by default
+    if (frameSubtitler == null) {
+      return;
+    }
+
+    boolean subtitleEnabled = !frameSubtitler.isSubtitleEnabled();
+    frameSubtitler.setEnableSubtitle(subtitleEnabled);
+    view.showSubtitleEnabled(subtitleEnabled);
   }
 
   private void stopAndExit() {
