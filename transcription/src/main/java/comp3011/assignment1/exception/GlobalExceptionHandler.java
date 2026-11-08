@@ -1,5 +1,7 @@
 package comp3011.assignment1.exception;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -8,14 +10,14 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import comp3011.assignment1.dto.ErrorResponse;
 
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.time.Instant;
 
-@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+  private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
   // helper method to generate the error response
   private ResponseEntity<ErrorResponse> generateErrorResponse(HttpStatus status, String message,
