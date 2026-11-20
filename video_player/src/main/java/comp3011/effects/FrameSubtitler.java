@@ -1,6 +1,8 @@
 package comp3011.effects;
 
 import comp3011.dto.InfoFrame;
+import comp3011.dto.SubtitleSegment;
+import comp3011.dto.SubtitleResponse;
 
 // Java2D, the JDK's own 2D drawing API
 // process() runs on a pipeline worker thread, and JavaFX objects must only ever
@@ -12,19 +14,45 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 
+import java.util.List;
+import java.util.Properties;
+import java.io.File;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.UUID;
+
+import java.io.InputStream;
+
 // this is for the decoded frame and its raw pixel buffer
 // we edit the pixel in place instead of copying them
 import java.nio.ByteBuffer;
+
+import org.bytedeco.javacv.FFmpegFrameGrabber;
+import org.bytedeco.javacv.FFmpegFrameRecorder;
 import org.bytedeco.javacv.Frame;
 
+import tools.jackson.databind.ObjectMapper;
+
 public class FrameSubtitler extends FrameProcessor {
+  // retrieve the subtitle url from the properties file
+  private static final String SUBTITLE_URL = readSubtitleUrl();
+
+  // placeholder only to test if the subtitle does appear on the screen before
+  // using OpenAI for the transcription or used as a fallback
+  private static final String PLACEHOLDER_SUBTITLE_TEXT = "Test subtitle feature";
+
+  private static final HttpClient HTTP = HttpClient.newHttpClient(); // use to send the request to the Spring server
+  private static final ObjectMapper MAPPER = new ObjectMapper(); // for conversion: JSON -> Java Object and vice versa
+
+  private volatile List<SubtitleSegment> segments; // swapped atomically, no locks
 
   // toggle subtitle
   private volatile boolean isSubtitleEnabled = true;
-
-  // placeholder only to test if the subtitle does appear on the screen before
-  // using OpenAI for the transcription
-  private static final String PLACEHOLDER_SUBTITLE_TEXT = "Test subtitle feature";
 
   // this is the gap between the subtitle and the bottom edge of the frame;
   private static final int BOTTOM_MARGIN = 12;
@@ -58,8 +86,14 @@ public class FrameSubtitler extends FrameProcessor {
       throw new Exception("FrameSubtitler requires 8-bit image frames");
     }
 
+    String subtitleText = subtitleTextAt(info.timestampUs() / 1_000_000.0);
+
+    if (subtitleText == null) {
+      return;
+    }
+
     int fontSize = Math.max(12, videoInfo.imageHeight() / 24);
-    printSubtitle(pixels, buildSubtitleImage(PLACEHOLDER_SUBTITLE_TEXT, fontSize));
+    printSubtitle(pixels, buildSubtitleImage(subtitleText, fontSize));
   }
 
   private BufferedImage buildSubtitleImage(String text, int fontSize) {
@@ -155,5 +189,132 @@ public class FrameSubtitler extends FrameProcessor {
         }
       }
     }
+  }
+
+  public void loadSubtitle(File video) {
+    if (SUBTITLE_URL == null) {
+      System.err.println("No URL found, printing placeholder only");
+    }
+
+    Thread subtitleThread = new Thread(() -> {
+      File extractedAudio = null;
+      try {
+        extractedAudio = extractAudio(video);
+        // return JSON
+        byte[] returnedResponse = postMultipart(extractedAudio);
+
+        // convert to SubtitleResponse (JSON -> SubtitleResponse object)
+        SubtitleResponse response = MAPPER.readValue(returnedResponse, SubtitleResponse.class);
+        segments = response.segments() == null ? List.of() : response.segments();
+      } catch (Exception e) {
+        // server down or request rejected: keep the placeholder, playback is
+        // unaffected
+        System.err.println("Subtitle fetch failed: " + e);
+      } finally {
+        extractedAudio.delete();
+      }
+    }, "subtitleThread");
+
+    subtitleThread.setDaemon(true);
+    subtitleThread.start();
+  }
+
+  private byte[] postMultipart(File video) throws IOException, InterruptedException {
+    // separate the header and tail of the request
+    String boundary = UUID.randomUUID().toString();
+
+    // use octet stream for unknown data types of the input
+    byte[] reqHead = ("--" + boundary + "\r\n" + "Content-Disposition: form-data; name=\"audio\"; filename=\""
+        + video.getName() + "\"\r\n" + "Content-Type: application/octet-stream\r\n\r\n")
+        .getBytes(StandardCharsets.UTF_8);
+
+    byte[] reqTail = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
+
+    // build the request
+    HttpRequest request = HttpRequest.newBuilder(URI.create(SUBTITLE_URL)).header("Content-Type",
+        "multipart/form-data; boundary=" + boundary)
+        .POST(HttpRequest.BodyPublishers.ofByteArrays(List.of(reqHead, Files.readAllBytes(video.toPath()), reqTail)))
+        .build();
+
+    HttpResponse<byte[]> response = HTTP.send(request, HttpResponse.BodyHandlers.ofByteArray());
+
+    if (response.statusCode() != 200) {
+      throw new IOException("Something went wrong " + response.statusCode());
+    }
+
+    return response.body();
+  }
+
+  // determine the subtitle at what seconds
+  private String subtitleTextAt(double seconds) {
+
+    List<SubtitleSegment> currentSegments = segments;
+
+    // loading or failed to fetch
+    if (currentSegments == null) {
+      return PLACEHOLDER_SUBTITLE_TEXT;
+    }
+
+    for (SubtitleSegment segment : currentSegments) {
+      if (seconds >= segment.start() && seconds < segment.end()) {
+        return segment.outputText();
+      }
+    }
+    return null;
+  }
+
+  // extract and upload the audio to Whisper only, as uploading the entire video
+  // exceeds the size limit of Whisper (26214400 bytes)
+  private File extractAudio(File video) throws Exception {
+    File audioTempFile = File.createTempFile("subtitle-", ".webm");
+
+    try (FFmpegFrameGrabber grabber = new FFmpegFrameGrabber(video);
+        FFmpegFrameRecorder recorder = new FFmpegFrameRecorder(audioTempFile, 1)) {
+
+      grabber.start();
+
+      recorder.setFormat("webm");
+      recorder.setAudioCodecName("libopus");
+      recorder.setSampleRate(16000);
+      recorder.setAudioChannels(1);
+      recorder.setAudioBitrate(24000);
+      recorder.start();
+
+      Frame frame;
+
+      while ((frame = grabber.grabSamples()) != null) {
+        recorder.record(frame);
+      }
+    }
+    return audioTempFile;
+  }
+
+  // read the url in the properties file
+  private static String readSubtitleUrl() {
+
+    // searsch for the subtitle.properties
+    // try-with-resource to automatically close when the try catch block finish
+    // Can use any other class instead of FrameSubtitler, as it just gives Java a
+    // reference
+    // however, using FrameSubtitler here as it makes sense that we need to get the
+    // configuration for the subtitle
+    try (InputStream inputStream = FrameSubtitler.class.getResourceAsStream("/subtitle.properties")) {
+
+      // if file not exist
+      if (inputStream == null) {
+        return null;
+      }
+
+      // load and return the property
+      Properties properties = new Properties();
+
+      properties.load(inputStream);
+
+      return properties.getProperty("subtitle.url");
+
+    } catch (IOException ex) {
+      return null;
+    }
+
   }
 }

@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import comp3011.assignment1.dto.SubtitleResponse;
 import comp3011.assignment1.service.TranscriptionService;
 
 @RestController
@@ -21,22 +22,23 @@ public class TranscriptionController {
     this.transcriptionService = transcriptionService;
   }
 
-  @PostMapping("/transcribe")
+  @PostMapping("/subtitles")
   // using ResponseEntity to handle HTTP response
-  public ResponseEntity<String> processAudioFile(@RequestParam("audio") MultipartFile audioFile) throws IOException {
+  public ResponseEntity<SubtitleResponse> processAudioFile(@RequestParam("audio") MultipartFile audioFile)
+      throws IOException {
 
     // in case the audio file is empty
     if (audioFile.isEmpty()) {
 
       return ResponseEntity
           .badRequest()
-          .body("Audio file is empty!");
+          .build();
     }
 
     // no try-catch block here as it's handled by the global exception handler part
-    String transcription = transcriptionService.transcribe(audioFile);
+    SubtitleResponse subtitleResponse = transcriptionService.transcribe(audioFile);
 
-    return ResponseEntity.ok(transcription);
+    return ResponseEntity.ok(subtitleResponse);
 
   }
 }

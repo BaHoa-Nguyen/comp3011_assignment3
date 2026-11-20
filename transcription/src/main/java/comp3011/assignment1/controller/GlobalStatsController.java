@@ -18,7 +18,7 @@ public class GlobalStatsController {
     this.globalStatsService = globalStatsService;
   }
 
-  @GetMapping("/stats")
+  @GetMapping("/usage")
   public ResponseEntity<GlobalStatsResponse> getGlobalStats() {
     return ResponseEntity.ok(globalStatsService.getGlobalStats());
   }

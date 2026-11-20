@@ -108,7 +108,8 @@ public class TranscriptionConcurrencyTest {
               + " ms");
 
       assertEquals(200, result.statusCode());
-      assertEquals("This is a mocked transcription response", result.body());
+      assertTrue(result.body().contains("This is a mock transcription response"),
+          "Unexpected body: " + result.body());
 
       assertTrue(
           result.timeTaken() < 5000,
@@ -119,8 +120,7 @@ public class TranscriptionConcurrencyTest {
 
     GlobalStatsResponse stats = globalStatsService.getGlobalStats();
 
-    assertEquals(3000, stats.inputTokens());
-    assertEquals(1500, stats.outputTokens());
+    assertEquals(3000.0, stats.usage());
 
     System.out.println(
         "Completed "

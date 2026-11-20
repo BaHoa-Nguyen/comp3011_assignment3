@@ -19,8 +19,6 @@ import java.io.File;
 import java.util.List;
 import java.util.function.BiConsumer;
 
-import org.bytedeco.librealsense.frame;
-
 import javafx.scene.Scene;
 import javafx.scene.image.Image;
 import javafx.scene.input.KeyCode;
@@ -108,6 +106,11 @@ public class VideoPlayerController {
   public void play(File file) {
     view.setPlaybackControlsDisabled(false);
     view.getSubtitleButton().setDisable(frameSubtitler == null);
+
+    if (frameSubtitler != null) {
+      frameSubtitler.loadSubtitle(file);
+    }
+
     model.play(file);
   }
 

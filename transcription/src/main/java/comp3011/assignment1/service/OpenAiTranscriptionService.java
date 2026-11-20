@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Locale; // for language management
 
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -48,10 +49,10 @@ public class OpenAiTranscriptionService implements TranscriptionService {
     TranscriptionCreateParams params = createRequest(audioFile);
     TranscriptionCreateResponse response = openAIClient.audio().transcriptions().create(params);
 
-    updateTokenUsage(response);
-
     // change to verbose instead of string
     TranscriptionVerbose verbose = response.verbose().orElseThrow();
+
+    globalStatsService.addUsage(verbose.duration());
 
     return new SubtitleResponse(verbose.duration(), convertToSegment(verbose));
   }
@@ -91,6 +92,10 @@ public class OpenAiTranscriptionService implements TranscriptionService {
         continue;
       }
 
+      if (isRepeatedLetter(segment.text())) {
+        continue;
+      }
+
       convertedSegments.add(new SubtitleSegment(segment.start(), segment.end(), segment.text().trim(),
           findWordsOfSegment(openAiOutputWords, segment.start(), segment.end())));
     }
@@ -108,42 +113,25 @@ public class OpenAiTranscriptionService implements TranscriptionService {
     return noSpeechProb > NO_SPEECH_THRESHOLD && avglogProb < LOG_PROB_THRESHOLD;
   }
 
+  // A segment of one letter repeated ("Aaaaaaaaa…") carries no speech.
+  // Deliberately narrow: more than two letters and only one distinct letter, so
+  // short real words like "Oh" or "No" are never dropped.
+  private boolean isRepeatedLetter(String text) {
+    String letters = text.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}]", "");
+
+    return letters.length() > 2 && letters.chars().distinct().count() == 1;
+  }
+
   private List<SubtitleWord> findWordsOfSegment(List<TranscriptionWord> words, double start, double end) {
     List<SubtitleWord> matchedWords = new ArrayList<>();
 
     for (TranscriptionWord word : words) {
-      if (word.start() >= start && word.end() < end) {
+      if (word.start() >= start && word.start() < end) {
         matchedWords.add(new SubtitleWord(word.word(), word.start(), word.end()));
       }
     }
 
     return matchedWords;
-  }
-
-  private void updateTokenUsage(TranscriptionCreateResponse response) {
-    // use of orElseThrow to ensure that the model does return a transcription
-    // response
-    // otherwise throws an error as transcription(), usage() and tokens()
-    // all have Optional<> wrapper, meaning that they can return a null response
-    // which can make it hard for debugging.
-
-    long inputTokens = response.transcription()
-        .orElseThrow()
-        .usage()
-        .orElseThrow()
-        .tokens()
-        .orElseThrow()
-        .inputTokens();
-
-    long outputTokens = response.transcription()
-        .orElseThrow()
-        .usage()
-        .orElseThrow()
-        .tokens()
-        .orElseThrow()
-        .outputTokens();
-
-    globalStatsService.addUsage(inputTokens, outputTokens);
   }
 
 }
