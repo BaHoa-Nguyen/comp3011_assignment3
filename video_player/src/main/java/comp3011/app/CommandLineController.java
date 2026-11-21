@@ -221,7 +221,7 @@ public class CommandLineController {
     // hyphen (-), followed by
     // one or more lowercase English letters, and nothing else.
     for (String arg : args) {
-      if (arg.matches("^-[a-z]{1,}$")) {
+      if (arg.matches("^-[a-zA-Z]{1,}$")) {
         for (int argIndex = 1; argIndex < arg.length(); argIndex++) {
           stackedProcessors.add("-" + arg.charAt(argIndex));
         }
