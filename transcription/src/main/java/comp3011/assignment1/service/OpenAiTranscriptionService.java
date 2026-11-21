@@ -13,6 +13,7 @@ import java.util.Locale; // for language management
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.context.annotation.Profile;
+import org.springframework.context.annotation.Lazy;
 
 import com.openai.client.OpenAIClient;
 import com.openai.core.MultipartField;
@@ -37,7 +38,7 @@ public class OpenAiTranscriptionService implements TranscriptionService {
   private final OpenAIClient openAIClient;
   private final GlobalStatsService globalStatsService;
 
-  public OpenAiTranscriptionService(OpenAIClient openAIClient, GlobalStatsService globalStatsService) {
+  public OpenAiTranscriptionService(@Lazy OpenAIClient openAIClient, GlobalStatsService globalStatsService) {
     this.openAIClient = openAIClient;
     this.globalStatsService = globalStatsService;
 
