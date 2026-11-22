@@ -50,6 +50,25 @@ class TranscriptionCacheContentTest {
   }
 
   @Test
+  void reusesCaptionsWhenTheClipStartsBetweenStoredFrames() {
+    short[] fullSound = speechLikeSound(16, 9);
+    TranscriptionCache cache = new TranscriptionCache();
+
+    rememberFirstChunk(cache, fullSound);
+    cache.rememberTranscription(wavOf(slice(fullSound, 10, 16)),
+        new SubtitleResponse(6.0, List.of(segment(0.0, 6.0, "the last part"))));
+
+    // 7.43 s is not a multiple of the 50 ms spacing of the stored frames.
+    int startSample = 7 * SAMPLE_RATE + 6_880;
+    byte[] excerpt = wavOf(Arrays.copyOfRange(fullSound, startSample, startSample + 10 * SAMPLE_RATE));
+
+    SubtitleResponse reused = cache.findTranscription(excerpt);
+
+    assertNotNull(reused, "a clip starting between two stored frames must still be recognised");
+    assertFalse(reused.segments().isEmpty());
+  }
+
+  @Test
   void reusesCaptionsAfterGainAndSmallNoise() {
     short[] fullSound = speechLikeSound(16, 2);
     TranscriptionCache cache = new TranscriptionCache();

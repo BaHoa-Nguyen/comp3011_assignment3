@@ -1,5 +1,8 @@
 package comp3011.assignment1.service;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Describes what a piece of sound looks like, in a way that survives being
  * copied into a different video file.
@@ -16,7 +19,7 @@ package comp3011.assignment1.service;
  * simple format directly and needs no audio decoder.
  * </p>
  */
-public record AudioFingerprint(int[] frameCodes, double durationSeconds) {
+public record AudioFingerprint(int[] frameCodes, double durationSeconds, double phaseSeconds) {
 
   // the player always sends this format, so the same numbers are used here
   public static final int SAMPLE_RATE = 16_000;
@@ -25,6 +28,12 @@ public record AudioFingerprint(int[] frameCodes, double durationSeconds) {
   // each code describes 100 ms of sound, and a new code starts every 50 ms
   private static final int WINDOW_SAMPLES = 1_600;
   private static final int HOP_SAMPLES = 800;
+
+  // A clip rarely starts exactly on the 50 ms grid used by the sound already
+  // stored. Eight starting points 6.25 ms apart mean the clip still lines up
+  // when it begins between two stored frames.
+  public static final int PHASE_COUNT = 8;
+  private static final int PHASE_SAMPLES = HOP_SAMPLES / PHASE_COUNT;
 
   // five and a half octaves of speech, from a low male voice to the bright
   // consonants that make words easy to tell apart
@@ -58,18 +67,41 @@ public record AudioFingerprint(int[] frameCodes, double durationSeconds) {
       return null;
     }
 
-    short[] samples = sound.samples();
-    int frameCount = samples.length < WINDOW_SAMPLES
+    return describeFromStart(sound.samples(), 0);
+  }
+
+  // The same sound described from slightly different starting points. Stored
+  // transcripts always start on the normal grid, so trying these in turn lets a
+  // clip that begins between two stored frames find its match.
+  public static List<AudioFingerprint> fromWavAtEachPhase(byte[] wavBytes) {
+    WavSound sound = readWavSound(wavBytes);
+
+    if (sound == null) {
+      return List.of();
+    }
+
+    List<AudioFingerprint> fingerprints = new ArrayList<>(PHASE_COUNT);
+
+    for (int phase = 0; phase < PHASE_COUNT; phase++) {
+      fingerprints.add(describeFromStart(sound.samples(), phase * PHASE_SAMPLES));
+    }
+
+    return fingerprints;
+  }
+
+  private static AudioFingerprint describeFromStart(short[] samples, int startSample) {
+    int frameCount = samples.length - startSample < WINDOW_SAMPLES
         ? 0
-        : 1 + (samples.length - WINDOW_SAMPLES) / HOP_SAMPLES;
+        : 1 + (samples.length - startSample - WINDOW_SAMPLES) / HOP_SAMPLES;
 
     int[] frameCodes = new int[frameCount];
 
     for (int frameNumber = 0; frameNumber < frameCount; frameNumber++) {
-      frameCodes[frameNumber] = describeFrame(samples, frameNumber * HOP_SAMPLES);
+      frameCodes[frameNumber] = describeFrame(samples, startSample + frameNumber * HOP_SAMPLES);
     }
 
-    return new AudioFingerprint(frameCodes, (double) samples.length / SAMPLE_RATE);
+    return new AudioFingerprint(frameCodes, (double) samples.length / SAMPLE_RATE,
+        (double) startSample / SAMPLE_RATE);
   }
 
   // Turns one 100 ms window into eight bits: seven comparisons between

@@ -79,29 +79,36 @@ public class TranscriptionCache {
       return exactTranscript;
     }
 
-    AudioFingerprint fingerprint = AudioFingerprint.fromWav(audioBytes);
+    List<AudioFingerprint> fingerprints = AudioFingerprint.fromWavAtEachPhase(audioBytes);
 
-    if (fingerprint == null) {
+    if (fingerprints.isEmpty()) {
       return null; // not the player's WAV format: exact matching only
     }
 
-    if (!fingerprint.hasSound()) {
+    AudioFingerprint firstFingerprint = fingerprints.get(0);
+
+    if (!firstFingerprint.hasSound()) {
       // Silence contains no words. Once anything has been transcribed, there
       // is nothing new to learn by paying for silence again.
       if (recentTranscriptions.isEmpty() && exactTranscriptions.isEmpty()) {
         return null;
       }
 
-      return new SubtitleResponse(fingerprint.durationSeconds(), List.of());
+      return new SubtitleResponse(firstFingerprint.durationSeconds(), List.of());
     }
 
-    List<FingerprintMatch> matches = findMatches(fingerprint.frameCodes());
+    // A clip cut between two stored frames only lines up from one of the
+    // slightly shifted starting points. Trying them in turn costs more only
+    // when the obvious first try misses.
+    for (AudioFingerprint fingerprint : fingerprints) {
+      List<FingerprintMatch> matches = findMatches(fingerprint);
 
-    if (matches == null) {
-      return null;
+      if (matches != null) {
+        return buildResponse(firstFingerprint.durationSeconds(), matches);
+      }
     }
 
-    return buildResponse(fingerprint.durationSeconds(), matches);
+    return null;
   }
 
   /**
@@ -140,7 +147,8 @@ public class TranscriptionCache {
   // 50 ms alignment is tried. The best match is accepted, then the search runs
   // again for any sound the first match did not cover. That is how a clip that
   // crosses an old chunk boundary is rebuilt from both sides.
-  private List<FingerprintMatch> findMatches(int[] newFrameCodes) {
+  private List<FingerprintMatch> findMatches(AudioFingerprint newFingerprint) {
+    int[] newFrameCodes = newFingerprint.frameCodes();
     int soundFrameCount = countSoundFrames(newFrameCodes);
 
     if (soundFrameCount < MINIMUM_MATCH_FRAMES) {
@@ -155,7 +163,7 @@ public class TranscriptionCache {
       FingerprintMatch bestMatch = null;
 
       for (CachedTranscription cached : recentTranscriptions) {
-        FingerprintMatch candidate = findBestAlignment(newFrameCodes, coveredFrames, cached);
+        FingerprintMatch candidate = findBestAlignment(newFingerprint, coveredFrames, cached);
 
         if (isBetterMatch(candidate, bestMatch)) {
           bestMatch = candidate;
@@ -192,8 +200,9 @@ public class TranscriptionCache {
             && candidate.similarity() > currentBest.similarity());
   }
 
-  private static FingerprintMatch findBestAlignment(int[] newFrameCodes, boolean[] coveredFrames,
+  private static FingerprintMatch findBestAlignment(AudioFingerprint newFingerprint, boolean[] coveredFrames,
       CachedTranscription cached) {
+    int[] newFrameCodes = newFingerprint.frameCodes();
     int[] cachedFrameCodes = cached.frameCodes();
     FingerprintMatch bestMatch = null;
     // A positive shift means the new clip starts later inside the old piece.
@@ -239,7 +248,7 @@ public class TranscriptionCache {
       }
 
       FingerprintMatch candidate = new FingerprintMatch(
-          cached, shift, fromFrame, toFrame, similarity, newlyCoveredFrames);
+          cached, newFingerprint.phaseSeconds(), shift, fromFrame, toFrame, similarity, newlyCoveredFrames);
 
       if (isBetterMatch(candidate, bestMatch)) {
         bestMatch = candidate;
@@ -287,9 +296,11 @@ public class TranscriptionCache {
     List<SubtitleSegment> movedSegments = new ArrayList<>();
 
     for (FingerprintMatch match : matches) {
-      double secondsToMove = -match.shiftFrames() * AudioFingerprint.HOP_SECONDS;
-      double matchedStart = match.fromFrame() * AudioFingerprint.HOP_SECONDS;
-      double matchedEnd = match.toFrame() * AudioFingerprint.HOP_SECONDS;
+      // The shifted starting point is part of where the word starts, so it is
+      // added back when the old timings are moved onto this clip's clock.
+      double secondsToMove = match.phaseSeconds() - match.shiftFrames() * AudioFingerprint.HOP_SECONDS;
+      double matchedStart = match.phaseSeconds() + match.fromFrame() * AudioFingerprint.HOP_SECONDS;
+      double matchedEnd = match.phaseSeconds() + match.toFrame() * AudioFingerprint.HOP_SECONDS;
 
       for (SubtitleSegment segment : match.source().segments()) {
         double movedStart = segment.start() + secondsToMove;
@@ -377,7 +388,7 @@ public class TranscriptionCache {
   private record CachedTranscription(int[] frameCodes, List<SubtitleSegment> segments) {
   }
 
-  private record FingerprintMatch(CachedTranscription source, int shiftFrames, int fromFrame, int toFrame,
-      double similarity, int newlyCoveredFrames) {
+  private record FingerprintMatch(CachedTranscription source, double phaseSeconds, int shiftFrames,
+      int fromFrame, int toFrame, double similarity, int newlyCoveredFrames) {
   }
 }
