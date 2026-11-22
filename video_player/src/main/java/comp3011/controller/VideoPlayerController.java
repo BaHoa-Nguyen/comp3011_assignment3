@@ -16,6 +16,7 @@ import comp3011.effects.FrameProcessor;
 import comp3011.effects.FrameSubtitler;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiConsumer;
 
@@ -46,22 +47,34 @@ public class VideoPlayerController {
       BiConsumer<Integer, Integer> videoSizeChangedHandler) {
     this.view = new VideoPlayerView();
     this.videoSizeChangedHandler = videoSizeChangedHandler;
+
+    // The S key and the subtitle button must work even when the player was
+    // started without -S. So a subtitle processor is always present. Without
+    // -S it simply begins switched off: nothing is sent and nothing is paid
+    // for until the viewer asks for captions.
+    List<FrameProcessor> pipeline = new ArrayList<>(frameProcessors);
+
+    // since subtitle is the only frame that can be toggled, finding it in the list
+    // of frame is necessary
+    frameSubtitler = pipeline.stream().filter(FrameSubtitler.class::isInstance).map(FrameSubtitler.class::cast)
+        .findFirst().orElseGet(() -> {
+          FrameSubtitler hiddenSubtitler = new FrameSubtitler();
+          hiddenSubtitler.setSubtitlesVisible(false);
+          pipeline.add(hiddenSubtitler); // last, so captions sit on top of other effects
+          return hiddenSubtitler;
+        });
+
     model = new VideoPlayerModel(
         audioEnabled,
-        frameProcessors,
+        pipeline,
         this::onVideoSizeChanged,
         this::onFrameReady,
         this::onStatusChanged,
         this::onPlaybackStateChanged,
         this::onAudioOutputStateChanged);
 
-    // since subtitle is the only frame that can be toggled, finding it in the list
-    // of frame is necessary
-    frameSubtitler = frameProcessors.stream().filter(FrameSubtitler.class::isInstance).map(FrameSubtitler.class::cast)
-        .findFirst().orElse(null);
-
-    view.getSubtitleButton().setOnAction(_ -> toggleSubtitle());
-    view.showSubtitleEnabled(frameSubtitler != null);
+    view.getSubtitleButton().setOnAction(_ -> toggleSubtitles());
+    view.showSubtitleEnabled(frameSubtitler.areSubtitlesVisible());
     view.getStartOverButton().setOnAction(_ -> startOver());
     view.getBackFiveButton().setOnAction(_ -> backFiveSeconds());
     view.getPausePlayButton().setOnAction(_ -> togglePause());
@@ -93,7 +106,7 @@ public class VideoPlayerController {
         toggleAudioOutput();
         event.consume();
       } else if (event.getCode() == KeyCode.S) {
-        toggleSubtitle();
+        toggleSubtitles();
         event.consume();
       }
     });
@@ -105,12 +118,7 @@ public class VideoPlayerController {
 
   public void play(File file) {
     view.setPlaybackControlsDisabled(false);
-    view.getSubtitleButton().setDisable(frameSubtitler == null);
-
-    if (frameSubtitler != null) {
-      frameSubtitler.loadSubtitle(file);
-    }
-
+    frameSubtitler.startSubtitlesFor(file);
     model.play(file);
   }
 
@@ -138,16 +146,10 @@ public class VideoPlayerController {
     model.toggleAudioOutput();
   }
 
-  private void toggleSubtitle() {
-
-    // -S is not given, so the button is disabled by default
-    if (frameSubtitler == null) {
-      return;
-    }
-
-    boolean subtitleEnabled = !frameSubtitler.isSubtitleEnabled();
-    frameSubtitler.setEnableSubtitle(subtitleEnabled);
-    view.showSubtitleEnabled(subtitleEnabled);
+  private void toggleSubtitles() {
+    boolean showCaptions = !frameSubtitler.areSubtitlesVisible();
+    frameSubtitler.setSubtitlesVisible(showCaptions);
+    view.showSubtitleEnabled(showCaptions);
   }
 
   private void stopAndExit() {

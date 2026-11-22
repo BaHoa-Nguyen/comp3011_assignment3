@@ -152,7 +152,7 @@ public class CommandLineController {
           "-S",
           "--subtitle-frames",
           FrameSubtitler::new,
-          "Add speech-to-text subtitles to frames")
+          "Start with speech-to-text subtitles visible")
 
   );
 
