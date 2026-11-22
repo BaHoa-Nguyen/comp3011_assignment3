@@ -25,7 +25,9 @@ public class FakeTranscriptionService implements TranscriptionService {
   }
 
   @Override
-  public SubtitleResponse transcribe(MultipartFile audioFile) throws IOException {
+  public SubtitleResponse createSubtitles(MultipartFile audioFile) throws IOException {
+    // pretends to be OpenAI: waits, then bills ten seconds and returns fixed
+    // text. The real service is never loaded while the "test" profile is on.
     try {
       // simulating the slow blocking OpenAI request
       Thread.sleep(2000);

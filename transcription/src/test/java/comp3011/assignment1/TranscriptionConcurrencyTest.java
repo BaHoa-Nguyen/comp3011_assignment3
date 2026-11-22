@@ -37,32 +37,21 @@ import comp3011.assignment1.service.GlobalStatsService;
 @ActiveProfiles("test")
 public class TranscriptionConcurrencyTest {
 
-  private final String MOCK_AUDIO_CONTENT = "Mock audio content";
-
   @LocalServerPort
   private int port;
 
   @Autowired
   private GlobalStatsService globalStatsService;
 
-  // use WebCClientBuilder to send the HTTP request to the
-  // FakeTranscriptionService
-  @Autowired
-  private WebClient.Builder webClientBuilder;
-
   @Test
   void shouldHandle300ConcurrentRequest() throws Exception {
     // assume we have 300 requests running concurrently
     int numOfRequests = 300;
 
-    // since we're using the FakeTranscriptionService which returns a string
-    // UTF_8 would be convenient and efficient for handling simple mock text
-    byte[] mockAudio = MOCK_AUDIO_CONTENT.getBytes(StandardCharsets.UTF_8);
-
     // Create a WebClient and point it to the real Spring Boot server, running on
     // the random port created earlier.
     // WebClient can handle asynchronous and non-blocking HTTP request
-    WebClient webClient = webClientBuilder.baseUrl("http://localhost:" + port).build();
+    WebClient webClient = WebClient.builder().baseUrl("http://localhost:" + port).build();
 
     // for storing 300 requests
     List<CompletableFuture<TestResult>> requestStorage = new ArrayList<>();
@@ -74,6 +63,10 @@ public class TranscriptionConcurrencyTest {
     // Create and send 300 HTTP requests then store the Mono<TestResult> inside the
     // requestStorage
     for (int request = 0; request < numOfRequests; request++) {
+      // a unique piece of sound per request, so every one reaches the fake
+      // service instead of hitting the server's transcription cache
+      byte[] mockAudio = ("Mock audio content " + request).getBytes(StandardCharsets.UTF_8);
+
       requestStorage.add(sendTranscriptionRequest(webClient, mockAudio));
     }
 
@@ -143,7 +136,7 @@ public class TranscriptionConcurrencyTest {
 
     // send the request
     return webClient.post()
-        .uri("/api/v1/transcribe")
+        .uri("/api/v1/subtitles")
         .contentType(MediaType.MULTIPART_FORM_DATA)
         .body(BodyInserters.fromMultipartData(requestBody.build()))
         .exchangeToMono(response -> processResponse(response, requestStartTime))

@@ -7,5 +7,5 @@ import java.io.IOException;
 import org.springframework.web.multipart.MultipartFile;
 
 public interface TranscriptionService {
-  SubtitleResponse transcribe(MultipartFile audioFile) throws IOException;
+  SubtitleResponse createSubtitles(MultipartFile audioFile) throws IOException;
 }
