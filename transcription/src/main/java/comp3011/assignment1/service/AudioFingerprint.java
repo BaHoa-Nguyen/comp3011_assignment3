@@ -32,7 +32,7 @@ public record AudioFingerprint(int[] frameCodes, double durationSeconds, double 
   // A clip rarely starts exactly on the 50 ms grid used by the sound already
   // stored. Eight starting points 6.25 ms apart mean the clip still lines up
   // when it begins between two stored frames.
-  public static final int PHASE_COUNT = 8;
+  private static final int PHASE_COUNT = 8;
   private static final int PHASE_SAMPLES = HOP_SAMPLES / PHASE_COUNT;
 
   // five and a half octaves of speech, from a low male voice to the bright
