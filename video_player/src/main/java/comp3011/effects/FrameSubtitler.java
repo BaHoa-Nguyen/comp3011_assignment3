@@ -24,6 +24,7 @@ import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.nio.ShortBuffer;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
@@ -78,6 +79,14 @@ public class FrameSubtitler extends FrameProcessor {
 
   // this is the gap between the caption and the bottom edge of the frame
   private static final int BOTTOM_MARGIN = 12;
+
+  // a server that stops answering must not leave the caption worker waiting
+  // forever, so one request is given up on after this much time
+  private static final int REQUEST_TIMEOUT_SECONDS = 20;
+
+  // the network can blink. Asking for the same piece again a moment later
+  // fills the gap without waiting for the next ten-second piece.
+  private static final int RETRY_DELAY_MILLIS = 1_000;
 
   // Reference:
   // https://partnerhelp.netflixstudios.com/hc/en-us/articles/215758617-Timed-Text-Style-Guide-General-Requirements
@@ -206,7 +215,7 @@ public class FrameSubtitler extends FrameProcessor {
 
         try {
           SubtitleResponse response = MAPPER.readValue(
-              transcribeChunk(chunk.audioBytes()), SubtitleResponse.class);
+              transcribeChunk(chunk.audioBytes(), workerNumber, SUBTITLE_URL), SubtitleResponse.class);
 
           collectedCues.addAll(buildCues(response.segments(), chunkStartSeconds));
           extendShortCuesIntoGaps(collectedCues);
@@ -335,8 +344,10 @@ public class FrameSubtitler extends FrameProcessor {
     return wav.array();
   }
 
-  // sends one piece of sound to the subtitle server and returns its answer
-  private byte[] transcribeChunk(byte[] wavChunk) throws IOException, InterruptedException {
+  // sends one piece of sound to the subtitle server and returns its answer.
+  // A failed request is tried once more before the piece is given up on.
+  byte[] transcribeChunk(byte[] wavChunk, int workerNumber, String subtitleUrl)
+      throws IOException, InterruptedException {
     // a boundary is a text marker that separates the parts of a form upload
     String boundary = UUID.randomUUID().toString();
 
@@ -346,11 +357,27 @@ public class FrameSubtitler extends FrameProcessor {
 
     byte[] requestTail = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
 
-    HttpRequest request = HttpRequest.newBuilder(URI.create(SUBTITLE_URL))
+    HttpRequest request = HttpRequest.newBuilder(URI.create(subtitleUrl))
         .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+        .timeout(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS))
         .POST(HttpRequest.BodyPublishers.ofByteArrays(List.of(requestHead, wavChunk, requestTail)))
         .build();
 
+    try {
+      return readSubtitleResponse(request);
+    } catch (IOException firstFailure) {
+      // A short interruption should not leave a silent hole in the captions.
+      Thread.sleep(RETRY_DELAY_MILLIS);
+
+      if (!isCurrentWorker(workerNumber)) {
+        throw firstFailure; // a different video has started, so this answer is unwanted
+      }
+
+      return readSubtitleResponse(request);
+    }
+  }
+
+  private static byte[] readSubtitleResponse(HttpRequest request) throws IOException, InterruptedException {
     HttpResponse<byte[]> response = HTTP.send(request, HttpResponse.BodyHandlers.ofByteArray());
 
     if (response.statusCode() != 200) {
